@@ -10,7 +10,7 @@ import RouletteWheel from "./RouletteWheel";
 import RouletteBowl from "./RouletteBowl";
 import ParticipantBall, { type BallSpawn } from "@/lib/ParticipantBall";
 import RouletteTable from "@/betting-table/Table";
-import { SCENE, spawnRadiusRange } from "@/lib/scene";
+import { SCENE, spawnRadiusRange, WHEEL_GEOMETRY } from "@/lib/scene";
 import type { SectionKey } from "@/lib/profile";
 import { secureRandomFloat } from "@/lib/spin";
 import config from "@/lib/config";
@@ -27,6 +27,7 @@ export interface Participant {
 const Y_AXIS = new Vector3(0, 1, 0);
 const MIN_SETTLE_TIME = 5.0; // s before we even consider resolving
 const HARD_TIMEOUT = 11.0; // s — resolve no matter what
+const FELL_Y = -1.5; // below the table (felt ≈ -0.165, frame bottom ≈ -1.1) = fell off
 
 function buildSpawns(participants: Participant[], spawnSections: SectionKey[]): BallSpawn[] {
   // Random order so no participant gets a systematic height advantage.
@@ -79,6 +80,9 @@ function Scene({
   const elapsed = useRef(0);
   const resolvedFor = useRef<number>(-1);
   const announcedSettling = useRef<number>(-1);
+  // Per-ball spin tracking: when it first left the wheel, and whether it fell off.
+  const leftAt = useRef<Map<string, number>>(new Map());
+  const fellOff = useRef<Set<string>>(new Set());
 
   const active = phase === "dropping" || phase === "settling";
   const spawns = useMemo(
@@ -94,6 +98,8 @@ function Scene({
     elapsed.current = 0;
     resolvedFor.current = -1;
     announcedSettling.current = -1;
+    leftAt.current.clear();
+    fellOff.current.clear();
     const dir = Math.random() < 0.5 ? 1 : -1;
     omega.current = dir * secureRandomFloat(6.5, 9.5);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,14 +141,22 @@ function Scene({
       onPhaseChange("settling");
     }
 
-    // Are all balls at rest?
+    // All balls at rest? Also record when each ball first leaves the wheel and
+    // whether it has dropped below the table (fell off).
     let allRest = true;
-    for (const body of bodies.current.values()) {
+    for (const [id, body] of bodies.current.entries()) {
+      // A removed body (e.g. roster edited between spins) leaves a dangling
+      // handle — calling into it panics Rapier ("unreachable"). Prune & skip.
+      if (!body.isValid()) {
+        bodies.current.delete(id);
+        continue;
+      }
       const lv = body.linvel();
-      const speed = Math.hypot(lv.x, lv.y, lv.z);
-      if (speed > SCENE.restLinearThreshold) {
-        allRest = false;
-        break;
+      if (Math.hypot(lv.x, lv.y, lv.z) > SCENE.restLinearThreshold) allRest = false;
+      const t = body.translation();
+      if (t.y < FELL_Y) fellOff.current.add(id);
+      if (!leftAt.current.has(id) && Math.hypot(t.x, t.z) > WHEEL_GEOMETRY.houseRadius) {
+        leftAt.current.set(id, elapsed.current);
       }
     }
 
@@ -154,17 +168,25 @@ function Scene({
       resolvedFor.current = spinId;
       const balls: BallState[] = participants.map((p) => {
         const body = bodies.current.get(p.id);
-        const t = body ? body.translation() : { x: 0, y: 0, z: 0 };
-        return { id: p.id, name: p.name, position: { x: t.x, y: t.y, z: t.z } };
+        const t = body && body.isValid() ? body.translation() : { x: 0, y: 0, z: 0 };
+        return {
+          id: p.id,
+          name: p.name,
+          color: p.color,
+          position: { x: t.x, y: t.y, z: t.z },
+          leftAt: leftAt.current.get(p.id) ?? null,
+          fellOff: fellOff.current.has(p.id),
+        };
       });
       // Rotor rotates by +angle about Y; local = world + angle (see settle.ts).
-      const result = resolveWinner(balls, -angle.current);
+      const result = resolveWinner(balls, -angle.current, WHEEL_GEOMETRY);
       if (result) onResolved(result);
     }
   });
 
   return (
     <>
+      <RouletteTable />
       <RouletteBowl />
       <RouletteWheel ref={rotor} />
       <group key={spinId}>
@@ -207,8 +229,8 @@ export default function RouletteCanvas(props: {
 
       <Suspense fallback={null}>
         <Physics gravity={[0, -22, 0]} timeStep="vary">
-          {/* Full roulette table — frame, felt, betting layout, chips */}
-          <RouletteTable />
+          {/* Full roulette table — frame, felt, betting layout, chips —
+              rendered inside Scene so its fell-off sensor reaches Scene's state. */}
           <Scene {...props} />
         </Physics>
       </Suspense>

@@ -53,3 +53,36 @@ export const SCENE = {
 } as const;
 
 export type Vec3 = { x: number; y: number; z: number };
+
+/**
+ * Geometry the resolver needs to classify where a ball came to rest. Passed in
+ * per wheel version (v2 exact, v1 half-scale) so the leaderboard works for both.
+ */
+export interface WheelGeometry {
+  /** Center of the pocket detection band (world units). */
+  pocketRingRadius: number;
+  /** A ball within this of the ring counts as "in a pocket". */
+  pocketBandHalfWidth: number;
+  /** Wheel + its wooden border outer radius — beyond this is the table tier. */
+  houseRadius: number;
+}
+
+/** v2: real wheel, full-size table collar. */
+export const WHEEL_GEOMETRY: WheelGeometry = {
+  pocketRingRadius: SCENE.pocketRingRadius,
+  pocketBandHalfWidth: SCENE.pocketBandHalfWidth,
+  // ≈ Table.tsx RING_OUTER (R.A + 0.08 + 90mm·MM); just past the wooden collar.
+  houseRadius: R.A + 1.02,
+};
+
+/**
+ * v1: the whole interior is numbered pockets and the wheel is rendered at half
+ * scale, so the band spans 0..rim — any in-wheel ball is "pocketed" (no tier 2),
+ * and anything beyond the (half-scale) rim has left the wheel.
+ */
+const V1_RIM = R.A * 0.5;
+export const WHEEL_GEOMETRY_V1: WheelGeometry = {
+  pocketRingRadius: V1_RIM / 2,
+  pocketBandHalfWidth: V1_RIM / 2,
+  houseRadius: V1_RIM,
+};

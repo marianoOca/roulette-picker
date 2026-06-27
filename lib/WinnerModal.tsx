@@ -1,10 +1,32 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import confetti from "canvas-confetti";
 import { colorForNumber } from "@/lib/rouletteOrder";
 import { POKET_PALETTE } from "@/lib/colors";
-import type { SpinResult } from "@/lib/settle";
+import type { LeaderboardEntry, SpinResult } from "@/lib/settle";
+
+/** Seconds the winner shows before the card expands into the leaderboard. */
+const EXPAND_DELAY_MS = 1500;
+/** Above this many other balls, lay the list out in two columns. */
+const TWO_COL_THRESHOLD = 14;
+
+/** Right-aligned label describing where a ball ended up. */
+function LandingLabel({ entry }: { entry: LeaderboardEntry }) {
+  if (entry.tier === 1 && entry.number !== null) {
+    return (
+      <span
+        className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1 text-xs font-bold text-white ring-1 ring-white/20"
+        style={{ background: POKET_PALETTE[colorForNumber(entry.number)] }}
+      >
+        {entry.number}
+      </span>
+    );
+  }
+  const text =
+    entry.tier === 2 ? "on the wheel" : entry.tier === 3 ? "on the table" : "off the table";
+  return <span className="shrink-0 text-xs text-white/40">{text}</span>;
+}
 
 export default function WinnerModal({
   result,
@@ -15,7 +37,8 @@ export default function WinnerModal({
   onSpinAgain: () => void;
   onClose: () => void;
 }) {
-  const { winner, byTiebreak } = result;
+  const { winner, byTiebreak, leaderboard } = result;
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const fire = (particleRatio: number, opts: confetti.Options) =>
@@ -31,8 +54,19 @@ export default function WinnerModal({
     fire(0.1, { spread: 120, startVelocity: 45 });
   }, []);
 
+  // Reveal the winner briefly, then expand into the leaderboard.
+  useEffect(() => {
+    const t = setTimeout(() => setExpanded(true), EXPAND_DELAY_MS);
+    return () => clearTimeout(t);
+  }, []);
+
   const numberColor =
     winner.number !== null ? POKET_PALETTE[colorForNumber(winner.number)] : "#888";
+
+  const others = leaderboard.filter((e) => e.id !== winner.id);
+  const twoCol = others.length > TWO_COL_THRESHOLD;
+  const cardWidth = expanded && twoCol ? "w-[min(90vw,560px)]" : "w-[min(90vw,420px)]";
+  const colsClass = twoCol ? "grid-cols-2" : "grid-cols-1";
 
   return (
     <div
@@ -40,11 +74,11 @@ export default function WinnerModal({
       onClick={onClose}
     >
       <div
-        className="animate-pop-in flex w-[min(90vw,420px)] flex-col items-center gap-5 rounded-2xl border border-gold/40 bg-gradient-to-b from-[#0c2417] to-[#04130b] p-8 text-center shadow-glow"
+        className={`${cardWidth} animate-pop-in flex max-h-[85vh] flex-col items-center gap-5 rounded-2xl border border-gold/40 bg-gradient-to-b from-[#0c2417] to-[#04130b] p-8 text-center shadow-glow transition-[max-width] duration-500`}
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="text-xs uppercase tracking-[0.3em] text-gold/70">
-          {byTiebreak ? "Tie-break winner" : "The winner is"}
+        <span className="font-display text-2xl font-black tracking-wide text-gold">
+          {byTiebreak ? "Tie-break winner" : "Next Standup host will be"}
         </span>
 
         <h2 className="font-display text-4xl font-black text-white drop-shadow">
@@ -63,6 +97,43 @@ export default function WinnerModal({
           </div>
         ) : (
           <p className="text-sm text-white/60">picked by tie-break</p>
+        )}
+
+        {/* Leaderboard — expands open after the reveal (grid-rows 0fr → 1fr). */}
+        {others.length > 0 && (
+          <div
+            className="grid w-full transition-all duration-500"
+            style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+          >
+            <div className="min-h-0 overflow-hidden">
+              {/* dir=rtl moves the scrollbar to the LEFT (off the pocket dots);
+                  inner dir=ltr keeps the grid order and content normal. */}
+              <div
+                dir="rtl"
+                className="roster-scroll max-h-[40vh] overflow-y-auto border-t border-white/10 pt-4"
+              >
+              <ul dir="ltr" className={`grid ${colsClass} gap-x-6 gap-y-0.5 pl-1 text-left`}>
+                {others.map((e, i) => (
+                  <li
+                    key={e.id}
+                    className={`flex items-center gap-2 py-1 ${expanded ? "animate-row-in" : "opacity-0"}`}
+                    style={{ animationDelay: `${Math.min(i, 12) * 0.045}s` }}
+                  >
+                    <span className="w-5 shrink-0 text-right text-xs tabular-nums text-white/40">
+                      {e.place}
+                    </span>
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-full"
+                      style={{ background: e.color }}
+                    />
+                    <span className="flex-1 truncate text-base text-white/85">{e.name}</span>
+                    <LandingLabel entry={e} />
+                  </li>
+                ))}
+              </ul>
+              </div>
+            </div>
+          </div>
         )}
 
         <div className="mt-2 flex w-full gap-3">

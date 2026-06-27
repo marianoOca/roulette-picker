@@ -89,7 +89,7 @@ function drawLabel(ctx: CanvasRenderingContext2D, c: Cell) {
   const cx = left + w / 2;
   const cy = top + h / 2;
   const fs = fontPx(c);
-  ctx.font = `bold ${fs}px Georgia, "Playfair Display", serif`;
+  ctx.font = `bold ${fs}px "Playfair Display", Georgia, serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
